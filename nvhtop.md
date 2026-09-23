@@ -1,9 +1,10 @@
 # nvhtop: from nvtop to a full system process monitor
 
+![NHVTOP interface](/screenshot/NVHTOP.png)
+
+
 nvhtop is nvtop (v3.3.2 base) extended with an htop-style full-system process
-monitor. The change is a single merge commit, `0a9474d`
-("nvhtop: merge htop-style system process monitor into nvtop"), on top of
-upstream nvtop master.
+monitor. 
 
 nvtop's original process table only shows processes that hold a GPU context,
 sourced from the GPU driver (NVML/AMBA/i915/...). nvhtop adds a second,
