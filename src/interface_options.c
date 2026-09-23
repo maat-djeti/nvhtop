@@ -121,7 +121,7 @@ void alloc_interface_options_internals(char *config_location, unsigned num_devic
   options->encode_decode_hiding_timer = 30.;
   options->temperature_in_fahrenheit = false;
   options->config_file_location = NULL;
-  options->sort_processes_by = process_memory;
+  options->sort_processes_by = process_cpu_pct;
   options->sort_descending_order = true;
   options->update_interval = 1000;
   options->process_fields_displayed = 0;
@@ -130,6 +130,7 @@ void alloc_interface_options_internals(char *config_location, unsigned num_devic
   options->filter_nvtop_pid = true;
   options->hide_processes_list = false;
   options->has_gpu_info_bar = false;
+  options->plot_height_modifier = 0;
   options->gpu_plot_color_idx[0] = 1;  // Cyan
   options->gpu_plot_color_idx[1] = 3;  // Yellow
   options->gpu_plot_color_idx[2] = 2;  // Green
@@ -192,7 +193,8 @@ static const char process_hide_nvtop_process[] = "HideNvtopProcess";
 static const char process_value_sortby[] = "SortBy";
 static const char process_value_display_field[] = "DisplayField";
 static const char *process_sortby_vals[process_field_count + 1] = {
-    "pId", "user", "gpuId", "type", "gpuRate", "encRate", "decRate", "memory", "cpuUsage", "cpuMem", "cmdline", "none"};
+    "pId", "user", "ppid", "priority", "nice", "state", "threads", "virt", "res", "cpuPct", "time", "gpuId",
+    "type", "gpuRate", "encRate", "decRate", "memory", "cpuUsage", "cpuMem", "cmdline", "none"};
 static const char process_value_sort_order[] = "SortOrder";
 static const char process_sort_descending[] = "descending";
 static const char process_sort_ascending[] = "ascending";
@@ -489,6 +491,8 @@ extern inline process_field_displayed process_default_displayed_field(void);
 extern inline unsigned process_field_displayed_count(process_field_displayed fields_displayed);
 
 enum process_field process_default_sort_by_from(process_field_displayed fields_displayed) {
+  if (process_is_field_displayed(process_cpu_pct, fields_displayed))
+    return process_cpu_pct;
   if (process_is_field_displayed(process_memory, fields_displayed))
     return process_memory;
   if (process_is_field_displayed(process_cpu_mem_usage, fields_displayed))

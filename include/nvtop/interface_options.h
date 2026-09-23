@@ -52,6 +52,7 @@ typedef struct nvtop_interface_option_struct {
   bool has_monitored_set_changed;                   // True if the set of monitored gpu was modified through the interface
   bool has_gpu_info_bar;                            // Show info bar with additional GPU parameters
   bool hide_processes_list;                         // Hide processes list
+  int plot_height_modifier;                         // Rows added (+) or removed (-) from GPU plot area
   unsigned char gpu_plot_color_idx[MAX_LINES_PER_PLOT]; // index into plot_color_names[] per plot slot
 } nvtop_interface_option;
 
@@ -114,12 +115,18 @@ inline process_field_displayed process_add_field_to_display(enum process_field f
 }
 
 inline process_field_displayed process_default_displayed_field(void) {
+  // htop-like default column set for the full system process table.
   process_field_displayed to_display = 0;
-  for (int field = process_pid; field < process_field_count; ++field) {
-    to_display = process_add_field_to_display((enum process_field)field, to_display);
-  }
-  to_display = process_remove_field_to_display(process_enc_rate, to_display);
-  to_display = process_remove_field_to_display(process_dec_rate, to_display);
+  to_display = process_add_field_to_display(process_pid, to_display);
+  to_display = process_add_field_to_display(process_user, to_display);
+  to_display = process_add_field_to_display(process_priority, to_display);
+  to_display = process_add_field_to_display(process_nice, to_display);
+  to_display = process_add_field_to_display(process_state, to_display);
+  to_display = process_add_field_to_display(process_virt, to_display);
+  to_display = process_add_field_to_display(process_res, to_display);
+  to_display = process_add_field_to_display(process_cpu_pct, to_display);
+  to_display = process_add_field_to_display(process_time, to_display);
+  to_display = process_add_field_to_display(process_command, to_display);
   return to_display;
 }
 

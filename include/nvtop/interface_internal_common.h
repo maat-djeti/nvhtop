@@ -26,8 +26,10 @@
 #include "nvtop/interface_options.h"
 #include "nvtop/interface_ring_buffer.h"
 #include "nvtop/time.h"
+#include "sys_proc_pool.h"
 
 #include <ncurses.h>
+#include <pthread.h>
 #include <stdbool.h>
 
 #define max(a, b) ((a) > (b) ? (a) : (b))
@@ -38,6 +40,12 @@ enum nvtop_option_window_state {
   nvtop_option_state_hidden,
   nvtop_option_state_kill,
   nvtop_option_state_sort_by,
+};
+
+// Which process population the table shows.
+enum process_view_mode {
+  process_view_all = 0, // full system (htop-style) table
+  process_view_gpu,      // GPU processes only (legacy nvtop view)
 };
 
 enum interface_color {
@@ -100,6 +108,7 @@ struct process_window {
   WINDOW *process_with_option_win;
   unsigned selected_row;
   pid_t selected_pid;
+  enum process_view_mode view_mode;
   struct option_window option_window;
 };
 
@@ -139,11 +148,15 @@ struct nvtop_interface {
   unsigned monitored_dev_count;
   struct device_window *devices_win;
   struct process_window process;
+  WINDOW *sys_stats_win; // htop-style CPU/mem block between plots and processes
   WINDOW *shortcut_window;
   unsigned num_plots;
   struct plot_window *plots;
   interface_ring_buffer saved_data_ring;
   struct setup_window setup_win;
+  struct sys_proc_pool *proc_pool;
+  pthread_t proc_thread;
+  bool proc_thread_running;
 };
 
 enum device_field {
