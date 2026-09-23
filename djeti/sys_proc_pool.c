@@ -176,6 +176,22 @@ static void read_command(pid_t pid, struct sys_proc *rec) {
   size_t total = fread(buf, 1, sizeof(buf) - 1, f);
   fclose(f);
   if (total == 0) {
+    // Kernel threads (and some others) have an empty cmdline; fall back to
+    // the task name in /proc/<pid>/comm, which is always present.
+    int w2 = snprintf(path, sizeof(path), "/proc/%" PRIdMAX "/comm", (intmax_t)pid);
+    if (w2 >= 0 && (size_t)w2 < sizeof(path)) {
+      FILE *cf = fopen(path, "r");
+      if (cf) {
+        char cbuf[64];
+        size_t cl = fread(cbuf, 1, sizeof(cbuf) - 1, cf);
+        fclose(cf);
+        cbuf[cl] = '\0';
+        while (cl > 0 && (cbuf[cl - 1] == '\n' || cbuf[cl - 1] == '\r'))
+          cl--;
+        snprintf(rec->command, sizeof(rec->command), "%.*s", (int)(sizeof(rec->command) - 1), cbuf);
+        return;
+      }
+    }
     rec->command[0] = '\0';
     return;
   }

@@ -30,10 +30,17 @@ static void *producer_thread(void *arg) {
 
 static void *consumer_thread(void *arg) {
   struct sys_proc_pool *pool = (struct sys_proc_pool *)arg;
+  int frames = 0;
   for (int i = 0; i < 3; ++i) {
     unsigned count;
     const struct sys_proc **procs = sys_proc_pool_frame_begin(pool, &count);
-    printf("frame %d: %u live processes\n", i + 1, count);
+    if (procs == NULL) {
+      // No frame ready yet (producer slower than consumer this pass).
+      usleep(100000);
+      continue;
+    }
+    frames++;
+    printf("frame %d: %u live processes\n", frames, count);
     for (unsigned j = 0; j < count; ++j) {
       const struct sys_proc *rec = procs[j];
       printf("  pid=%-6d cpu=%6.1f%% mem=%5.2f%% %s %s\n", (int)rec->pid, rec->cpu_pct,
@@ -89,6 +96,11 @@ static int test_sort_invariant(void) {
     sys_proc_pool_produce(pool, keys[k], descs[k]);
     unsigned count;
     const struct sys_proc **procs = sys_proc_pool_frame_begin(pool, &count);
+    if (procs == NULL) {
+      printf("key=%d: no frame ready (unexpected)\n", (int)keys[k]);
+      rc = 1;
+      continue;
+    }
     int failures = 0;
     for (unsigned i = 1; i < count; ++i) {
       int64_t va = key_val(procs[i - 1], keys[k]), vb = key_val(procs[i], keys[k]);
