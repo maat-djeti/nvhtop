@@ -436,6 +436,10 @@ int main(int argc, char **argv) {
     case KEY_RIGHT:
     case KEY_ENTER:
     case '\n':
+    case 't':
+    case 'u':
+    case 'a':
+    case 'g':
       interface_key(input_char, interface);
       break;
     case ERR:

@@ -5,7 +5,7 @@ configure_file(
   "${PROJECT_BINARY_DIR}/include/nvtop/version.h"
   IMMEDIATE @ONLY)
 
-add_executable(nvtop
+add_executable(nvhtop
   nvtop.c
   interface.c
   interface_layout_selection.c
@@ -17,6 +17,9 @@ add_executable(nvtop
   time.c
   plot.c
   ini.c
+  system_processes.c
+  system_stats.c
+  ../djeti/sys_proc_pool.c
 )
 
 check_c_source_compiles(
@@ -32,7 +35,7 @@ check_c_source_compiles(
 )
 
 if(HAS_REALLOCARRAY)
-  target_compile_definitions(nvtop PRIVATE HAS_REALLOCARRAY)
+  target_compile_definitions(nvhtop PRIVATE HAS_REALLOCARRAY)
 endif()
 
 find_package(UDev)
@@ -40,41 +43,41 @@ find_package(Systemd)
 option(USE_LIBUDEV_OVER_LIBSYSTEMD "Use libudev, even if libsystemd is present" OFF)
 
 if(UNIX AND NOT APPLE)
-  target_sources(nvtop PRIVATE
+  target_sources(nvhtop PRIVATE
     get_process_info_linux.c
     extract_processinfo_fdinfo.c
     info_messages_linux.c)
 elseif(APPLE)
-  target_sources(nvtop PRIVATE
+  target_sources(nvhtop PRIVATE
     get_process_info_mac.c
     extract_processinfo_mac.c
     info_messages_mac.c)
 endif()
 
 if(NVIDIA_SUPPORT)
-  target_sources(nvtop PRIVATE extract_gpuinfo_nvidia.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_nvidia.c)
 else()
-  target_sources(nvtop PRIVATE nvlink_nvidia_disabled.c)
+  target_sources(nvhtop PRIVATE nvlink_nvidia_disabled.c)
 endif()
 
 if(ASCEND_SUPPORT)
-  target_sources(nvtop PRIVATE extract_gpuinfo_ascend.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_ascend.c)
   set(DCMI_LIBRARY_PATH /usr/local/Ascend/driver/lib64/driver)
-  target_link_libraries(nvtop PRIVATE "${DCMI_LIBRARY_PATH}/libdcmi.so")
+  target_link_libraries(nvhtop PRIVATE "${DCMI_LIBRARY_PATH}/libdcmi.so")
 endif()
 
 if(AMDGPU_SUPPORT OR RADEON_SUPPORT OR INTEL_SUPPORT OR V3D_SUPPORT)
   if((SYSTEMD_FOUND AND UDEV_FOUND AND USE_LIBUDEV_OVER_LIBSYSTEMD) OR(NOT SYSTEMD_FOUND AND UDEV_FOUND))
-    target_compile_definitions(nvtop PRIVATE USING_LIBUDEV)
-    target_link_libraries(nvtop PRIVATE udev)
+    target_compile_definitions(nvhtop PRIVATE USING_LIBUDEV)
+    target_link_libraries(nvhtop PRIVATE udev)
   elseif(SYSTEMD_FOUND)
-    target_compile_definitions(nvtop PRIVATE USING_LIBSYSTEMD)
-    target_link_libraries(nvtop PRIVATE systemd)
+    target_compile_definitions(nvhtop PRIVATE USING_LIBSYSTEMD)
+    target_link_libraries(nvhtop PRIVATE systemd)
   else()
     message(FATAL_ERROR "Neither libsystemd nor libudev were found; These are required for AMDGPU, INTEL and V3D support")
   endif()
 
-  target_sources(nvtop PRIVATE device_discovery_linux.c)
+  target_sources(nvhtop PRIVATE device_discovery_linux.c)
 endif()
 
 if(AMDGPU_SUPPORT OR RADEON_SUPPORT OR INTEL_SUPPORT OR MSM_SUPPORT OR PANFROST_SUPPORT OR PANTHOR_SUPPORT)
@@ -83,7 +86,7 @@ if(AMDGPU_SUPPORT OR RADEON_SUPPORT OR INTEL_SUPPORT OR MSM_SUPPORT OR PANFROST_
 
   if(Libdrm_FOUND)
     message(STATUS "Found libdrm; Enabling support")
-    target_include_directories(nvtop PRIVATE ${Libdrm_INCLUDE_DIRS})
+    target_include_directories(nvhtop PRIVATE ${Libdrm_INCLUDE_DIRS})
   else()
     message(FATAL_ERROR "libdrm not found; This library is required for AMDGPU, INTEL, MSM, PANFROST and PANTHOR support")
     # CMake will exit if libdrm is not found
@@ -91,49 +94,49 @@ if(AMDGPU_SUPPORT OR RADEON_SUPPORT OR INTEL_SUPPORT OR MSM_SUPPORT OR PANFROST_
 endif()
 
 if (AMDGPU_SUPPORT)
-  target_sources(nvtop PRIVATE extract_gpuinfo_amdgpu.c)
-  target_sources(nvtop PRIVATE extract_gpuinfo_amdgpu_utils.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_amdgpu.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_amdgpu_utils.c)
 endif()
 
 if (RADEON_SUPPORT)
-  target_sources(nvtop PRIVATE extract_gpuinfo_radeon.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_radeon.c)
 endif()
 
 if (MSM_SUPPORT)
-  target_sources(nvtop PRIVATE extract_gpuinfo_msm.c)
-  target_sources(nvtop PRIVATE extract_gpuinfo_msm_utils.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_msm.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_msm_utils.c)
 
   pkg_check_modules(NPUPERF qcnpuperf)
   if (NPUPERF_FOUND)
-    target_include_directories(nvtop
+    target_include_directories(nvhtop
       PRIVATE
         ${NPUPERF_INCLUDE_DIRS}
     )
 
-    target_link_libraries(nvtop
+    target_link_libraries(nvhtop
       PRIVATE
         ${NPUPERF_LIBRARIES}
     )
-    target_sources(nvtop PRIVATE extract_npuinfo_qualcomm.c)
+    target_sources(nvhtop PRIVATE extract_npuinfo_qualcomm.c)
   else()
     message(STATUS "libqcnpuperf not found: Qualcomm NPU monitoring disabled")
   endif()
 endif()
 
 if(INTEL_SUPPORT)
-  target_sources(nvtop PRIVATE extract_gpuinfo_intel.c)
-  target_sources(nvtop PRIVATE extract_gpuinfo_intel_i915.c)
-  target_sources(nvtop PRIVATE extract_gpuinfo_intel_xe.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_intel.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_intel_i915.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_intel_xe.c)
 endif()
 
 if(V3D_SUPPORT)
-  target_sources(nvtop PRIVATE extract_gpuinfo_v3d.c)
-  target_sources(nvtop PRIVATE extract_gpuinfo_v3d_utils.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_v3d.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_v3d_utils.c)
 endif()
 
 if(APPLE_SUPPORT)
-  target_sources(nvtop PRIVATE extract_gpuinfo_apple.m)
-  target_link_libraries(nvtop PRIVATE
+  target_sources(nvhtop PRIVATE extract_gpuinfo_apple.m)
+  target_link_libraries(nvhtop PRIVATE
     "-framework Metal"
     "-framework AppKit"
     "-framework Foundation"
@@ -142,17 +145,17 @@ if(APPLE_SUPPORT)
 endif()
 
 if (PANFROST_SUPPORT)
-  target_sources(nvtop PRIVATE extract_gpuinfo_panfrost.c)
-  target_sources(nvtop PRIVATE extract_gpuinfo_panfrost_utils.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_panfrost.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_panfrost_utils.c)
 endif()
 
 if (PANTHOR_SUPPORT)
-  target_sources(nvtop PRIVATE extract_gpuinfo_panthor.c)
-  target_sources(nvtop PRIVATE extract_gpuinfo_panthor_utils.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_panthor.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_panthor_utils.c)
 endif()
 
 if ((PANFROST_SUPPORT) OR (PANTHOR_SUPPORT))
-  target_sources(nvtop PRIVATE extract_gpuinfo_mali_common.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_mali_common.c)
 endif()
 
 if(TPU_SUPPORT)
@@ -165,53 +168,54 @@ if(TPU_SUPPORT)
     message(WARNING "TPU Support enabled, but libtpuinfo.so not found in ldconfig path, we will not be able to read TPU usage")
     set(TPU_SUPPORT_DEFAULT OFF)
   endif()
-  target_sources(nvtop PRIVATE extract_gpuinfo_tpu.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_tpu.c)
 endif()
 
 if(ROCKCHIP_SUPPORT)
   message(STATUS "Building with Rockchip NPU support")
 
-  target_sources(nvtop PRIVATE extract_npuinfo_rockchip.c)
+  target_sources(nvhtop PRIVATE extract_npuinfo_rockchip.c)
 endif()
 
 if(METAX_SUPPORT)
-  target_sources(nvtop PRIVATE extract_gpuinfo_metax.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_metax.c)
 endif()
 
 if(ENFLAME_SUPPORT)
   message(STATUS "Building with Enflame GCU support")
-  target_sources(nvtop PRIVATE extract_gcuinfo_enflame.c)
+  target_sources(nvhtop PRIVATE extract_gcuinfo_enflame.c)
 endif()
 
 if(TENSTORRENT_SUPPORT)
-  target_sources(nvtop PRIVATE extract_gpuinfo_tenstorrent.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_tenstorrent.c)
 endif()
 
 if(IXML_SUPPORT)
   message(STATUS "Building with Iluvatar CoreX GPU support")
-  target_sources(nvtop PRIVATE extract_gpuinfo_ixml.c)
+  target_sources(nvhtop PRIVATE extract_gpuinfo_ixml.c)
 endif()
 
-target_include_directories(nvtop PRIVATE
+target_include_directories(nvhtop PRIVATE
   ${PROJECT_SOURCE_DIR}/include
-  ${PROJECT_BINARY_DIR}/include)
+  ${PROJECT_BINARY_DIR}/include
+  ${PROJECT_SOURCE_DIR}/djeti)
 
 find_package(Sanitizers)
 
-add_sanitizers(nvtop)
+add_sanitizers(nvhtop)
 
-set_property(TARGET nvtop PROPERTY C_STANDARD 11)
+set_property(TARGET nvhtop PROPERTY C_STANDARD 11)
 
-target_compile_definitions(nvtop PRIVATE _GNU_SOURCE)
+target_compile_definitions(nvhtop PRIVATE _GNU_SOURCE)
 
-target_link_libraries(nvtop
+target_link_libraries(nvhtop
   PRIVATE ncurses m ${CMAKE_DL_LIBS})
 
-install(TARGETS nvtop
+install(TARGETS nvhtop
   RUNTIME DESTINATION bin)
 
 include(compile-flags-helpers)
 include(${PROJECT_SOURCE_DIR}/cmake/optimization_flags.cmake)
 
-add_compiler_option_to_target_type(nvtop Debug PRIVATE ${ADDITIONAL_DEBUG_COMPILE_OPTIONS})
-add_linker_option_to_all_but_target_type(nvtop dummy PRIVATE ${ADDITIONAL_RELEASE_LINK_OPTIONS})
+add_compiler_option_to_target_type(nvhtop Debug PRIVATE ${ADDITIONAL_DEBUG_COMPILE_OPTIONS})
+add_linker_option_to_all_but_target_type(nvhtop dummy PRIVATE ${ADDITIONAL_RELEASE_LINK_OPTIONS})

@@ -8,13 +8,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define max(a, b) ((a) > (b) ? (a) : (b))
 #define min(a, b) ((a) < (b) ? (a) : (b))
 
+// Process table height: 1 header row + data rows. Scales with screen height
+// (up to a third of the rows) so the table stays usable on big terminals
+// without starving the GPU plots and the htop CPU/mem block on small ones.
 static unsigned min_rows_taken_by_process(unsigned rows, unsigned num_devices) {
-  return 1 + max(5, min(rows / 4, num_devices * 3));
+  return 1 + max(6u, min(rows / 3, num_devices * 3));
 }
+
 
 static const unsigned cols_needed_box_drawing = 5;
 static const unsigned min_plot_rows = 7;
@@ -232,10 +237,12 @@ static void balance_info_on_stacks_preserving_plot_order(unsigned stack_max_cols
 }
 void compute_sizes_from_layout(unsigned devices_count, unsigned device_header_rows, unsigned device_header_cols,
                                unsigned rows, unsigned cols, const nvtop_interface_gpu_opts *gpuOpts,
-                               process_field_displayed process_displayed, struct window_position *device_positions,
+                               process_field_displayed process_displayed, int plot_height_modifier,
+                               struct window_position *device_positions,
                                unsigned *num_plots, struct window_position plot_positions[MAX_CHARTS],
                                unsigned *map_device_to_plot, struct window_position *process_position,
-                               struct window_position *setup_position, bool process_win_hide) {
+                               struct window_position *sys_stats_position, struct window_position *setup_position,
+                               bool process_win_hide) {
 
   unsigned min_rows_for_header = 0, header_stacks = 0, num_device_per_row = 0;
   num_device_per_row = max(1, cols / device_header_cols);
@@ -262,7 +269,38 @@ void compute_sizes_from_layout(unsigned devices_count, unsigned device_header_ro
 
   unsigned rows_for_header = min_rows_for_header;
   unsigned rows_for_process = min_rows_for_process;
-  unsigned rows_for_plots = rows - min_rows_for_header - min_rows_for_process;
+  long plots_raw = (long)rows - min_rows_for_header - min_rows_for_process - (unsigned)plot_height_modifier;
+  unsigned rows_for_plots = plots_raw > 0 ? (unsigned)plots_raw : 0;
+
+  // Reserve the htop-style CPU/mem band BEFORE plot sizing so the plots shrink
+  // to fit around it. Height = grid rows (htop sub-column choice) + 3 summary
+  // lines, clamped so both the plot minimum and process minimum still fit.
+  long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+  if (ncpu < 1)
+    ncpu = 1;
+  unsigned subcols, half = (unsigned)ncpu / 2 + 1;
+  bool two_sides;
+  if (ncpu > 128) { subcols = 1; two_sides = false; }
+  else if (ncpu > 32) { subcols = 8; two_sides = true; }
+  else if (ncpu > 16) { subcols = 4; two_sides = true; }
+  else if (ncpu > 8)  { subcols = 2; two_sides = true; }
+  else if (ncpu > 4)  { subcols = 1; two_sides = true; }
+  else { subcols = 1; two_sides = false; }
+  (void)two_sides;
+  unsigned grid_rows = (half + subcols - 1) / subcols;
+  unsigned stats_want = grid_rows + 3;
+  unsigned stats_rows = 0;
+  if (process_field_displayed_count(process_displayed) > 0 && !process_win_hide) {
+    // Preserve the process table minimum; the GPU plot (low value) is allowed
+    // to shrink below min_plot_rows to make room for the CPU/mem block.
+    unsigned keep = min_rows_for_process;
+    unsigned avail = rows_for_plots > keep ? rows_for_plots - keep : 0;
+
+
+    stats_rows = stats_want < avail ? stats_want : avail;
+    rows_for_plots -= stats_rows;
+  }
+
 
   unsigned num_plot_stacks = 0;
   unsigned plot_in_stack[MAX_CHARTS];
@@ -332,8 +370,10 @@ void compute_sizes_from_layout(unsigned devices_count, unsigned device_header_ro
   unsigned rows_left_for_process = 0;
   if (*num_plots > 0) {
     unsigned rows_per_stack = rows_for_plots / num_plot_stacks;
-    if (!process_win_hide && rows_per_stack > 23)
-      rows_per_stack = 23;
+    // Cap the GPU plot height so the htop CPU/mem block and the process table
+    // below it keep enough room. Was 23.
+    if (!process_win_hide && rows_per_stack > 12)
+      rows_per_stack = 12;
     unsigned num_plot_done = 0;
     unsigned currentPosX = 0, currentPosY = rows_for_header;
     for (unsigned stack_id = 0; stack_id < num_plot_stacks; ++stack_id) {
@@ -370,9 +410,22 @@ void compute_sizes_from_layout(unsigned devices_count, unsigned device_header_ro
       rows_for_process += rows_for_plots - 1;
   }
 
+  // Stats block sits directly below the plots (or header, if no plots).
+  unsigned plot_bottom = rows_for_header;
+  if (*num_plots > 0) {
+    unsigned rps = rows_for_plots / num_plot_stacks;
+    if (!process_win_hide && rps > 12)
+      rps = 12;
+    plot_bottom = rows_for_header + rps * num_plot_stacks;
+  }
+  sys_stats_position->posX = 0;
+  sys_stats_position->posY = plot_bottom;
+  sys_stats_position->sizeX = cols;
+  sys_stats_position->sizeY = stats_rows;
+
   process_position->posX = 0;
-  process_position->posY = rows - rows_for_process - rows_left_for_process;
-  process_position->sizeY = rows_for_process + rows_left_for_process;
+  process_position->posY = plot_bottom + stats_rows;
+  process_position->sizeY = rows - process_position->posY;
   process_position->sizeX = cols;
 
   setup_position->posX = 0;

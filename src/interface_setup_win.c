@@ -127,8 +127,10 @@ static const char *setup_proc_list_option_description[setup_proc_list_options_co
     "Don't display the process list", "Hide nvtop in the process list", "Sort Ascending", "Sort by", "Field Displayed"};
 
 static const char *setup_proc_list_value_descriptions[process_field_count] = {
-    "Process Id",    "User name",        "Device Id", "Workload type",    "GPU usage", "Encoder usage",
-    "Decoder usage", "GPU memory usage", "CPU usage", "CPU memory usage", "Command"};
+    "Process Id",      "User name",  "Parent pid",  "Priority", "Nice",       "State",
+    "Threads",         "Virtual mem", "Resident",   "CPU %",    "CPU time",   "Device Id",
+    "Workload type",   "GPU usage",   "Encoder",     "Decoder",  "GPU memory", "CPU usage",
+    "CPU memory usage", "Command"};
 
 static unsigned int sizeof_setup_windows[setup_window_type_count] = {[setup_window_type_setup] = 11,
                                                                      [setup_window_type_single] = 0,
