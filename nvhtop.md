@@ -125,6 +125,44 @@ needed while preserving the process table's minimum rows.
 - **Selection/scrolling**: `j`/`k` and arrows move the selection; the visible
   window follows it (`update_selected_offset_with_window_size`).
 
+## Keyboard controls
+
+Verified against `interface_key()` (`src/interface.c`) and the main input loop
+(`src/nvtop.c`).
+
+| Key | Action |
+|-----|--------|
+| `a` | Full-system view (all processes, htop-style table) |
+| `g` | GPU-only view (legacy nvtop process table) |
+| `j` / Down | Move selection down |
+| `k` / Up | Move selection up |
+| `h` / Left | Scroll columns left |
+| `l` / Right | Scroll columns right |
+| `+` | Sort ascending |
+| `-` | Sort descending |
+| `t` | Increase GPU plot height |
+| `u` | Decrease GPU plot height |
+| `0`-`9` | (in kill menu) select signal number |
+| Enter | Confirm selection in kill/sort menu |
+| Esc | Close the current menu (or quit, see below) |
+| F2 | Open the setup/options window |
+| F5 / Ctrl+L | Redraw / refresh layout |
+| F6 | Open the sort-by menu |
+| F9 | Open the kill (signal) menu |
+| F10 | Quit (if escape-for-quit is enabled) |
+| F12 | Save options to the config file |
+| `q` | Quit |
+
+Notes:
+
+- `q` and F10 set the exit flag in the main loop (`src/nvtop.c`); a bare Esc
+  quits only when `is_escape_for_quit()` is true, otherwise it just closes the
+  open menu.
+- The kill menu (F9) lists signals; pick one with the arrows or a number key,
+  then Enter sends it to the selected PID. Works in both views.
+- The sort menu (F6) lists the displayed columns; Enter sorts by the selected
+  one. `+`/`-` flip direction without reopening the menu.
+
 ## Build
 
 The CMake target is `nvhtop` (`src/CMakeLists.txt`); `djeti/sys_proc_pool.c`
