@@ -49,18 +49,6 @@
 
 #define DJETI_PATH_MAX 1024
 
-// Per-PID CPU% baseline. Indexed DIRECTLY by pid (prev[pid]), so a process
-// keeps its utime/stime/time sample across scans no matter which display slot
-// it lands in. This is what fixes the flicker: the old code stored the sample
-// in the slot record, and a dead lower-pid process shifting the slot mapping
-// zeroed the delta for every process above it.
-struct prev_sample {
-  bool has_prev;
-  nvtop_time time;
-  unsigned long long utime;
-  unsigned long long stime;
-};
-
 struct sys_proc_pool {
   // Anonymous record slots, position-indexed 0..record_slots-1. Slot i holds
   // the i-th live process THIS scan (or NULL if not yet allocated). Grow-only.
@@ -72,9 +60,12 @@ struct sys_proc_pool {
   size_t sorted_slots;
   size_t sorted_count;
 
-  // PID-indexed CPU% baseline. Allocated once at pid_max+1 entries; entry i is
-  // the previous sample for pid i. Lives for the pool's whole lifetime.
-  struct prev_sample *prev;
+  // PID-indexed record collection. Allocated once at pid_max+1 entries; entry
+  // i is the record for pid i (or NULL if that pid has not been seen). This is
+  // the PID-keyed working store: a process is always found by its pid, so its
+  // CPU% baseline (stored in the record) is stable across scans no matter which
+  // display slot it lands in. This is what fixes the flicker.
+  struct sys_proc **indexed_collection;
   size_t pid_max;
 
   double total_ram; // bytes
@@ -295,9 +286,10 @@ struct sys_proc_pool *sys_proc_pool_new(void) {
   }
   if (pool->pid_max < 1024)
     pool->pid_max = 1024;
-  // PID-indexed baseline, zeroed so has_prev == false for every pid.
-  pool->prev = calloc(pool->pid_max + 1, sizeof(*pool->prev));
-  if (!pool->prev)
+  // PID-indexed record collection, zeroed so every entry starts NULL (pid not
+  // yet seen). calloc guarantees the NULL-init the scan relies on.
+  pool->indexed_collection = calloc(pool->pid_max + 1, sizeof(*pool->indexed_collection));
+  if (!pool->indexed_collection)
     abort();
   sem_init(&pool->frame_ready, 0, 0);
   sem_init(&pool->frame_done, 0, 1);
@@ -311,11 +303,14 @@ void sys_proc_pool_free(struct sys_proc_pool *pool) {
   // producer thread must already be stopped before this call.
   while (sem_trywait(&pool->frame_ready) == 0)
     sem_post(&pool->frame_done);
-  for (size_t i = 0; i < pool->record_slots; ++i)
-    free(pool->records[i]);
+  // records[] and sorted[] hold POINTERS into indexed_collection; only the
+  // index array itself is freed here, the pointer arrays are just index buffers.
   free(pool->records);
   free(pool->sorted);
-  free(pool->prev);
+  // Free every record the indexed collection owns, then the index itself.
+  for (size_t i = 0; i <= pool->pid_max; ++i)
+    free(pool->indexed_collection[i]);
+  free(pool->indexed_collection);
   sem_destroy(&pool->frame_ready);
   sem_destroy(&pool->frame_done);
   free(pool);
@@ -354,29 +349,25 @@ void sys_proc_pool_produce(struct sys_proc_pool *pool, enum process_field sort_k
       continue;
     pid_t pid = (pid_t)v;
 
-    if (h >= pool->record_slots)
-      records_append_slot(pool);
-    if (pool->records[h] == NULL)
-      pool->records[h] = calloc(1, sizeof(struct sys_proc)); // ONE record (I4)
-    struct sys_proc *rec = pool->records[h];
+    // Record is addressed by PID via the indexed collection: stable across
+    // scans, so the CPU% baseline stored in the record survives slot shifts.
+    if (pool->indexed_collection[pid] == NULL)
+      pool->indexed_collection[pid] = calloc(1, sizeof(struct sys_proc)); // ONE record (I4)
+    struct sys_proc *rec = pool->indexed_collection[pid];
     rec->pid = pid; // DATA, not a key (I2)
     if (!read_stat(pool, pid, rec))
       continue; // vanished mid-scan; slot not counted in h
     read_user(pid, rec);
     read_command(pid, rec);
 
-    // CPU% delta against the PID-indexed baseline. Read the prior sample for
-    // THIS pid (not this slot) before overwriting, compute the delta, then
-    // store the new sample. A pid keeps its baseline across scans regardless
-    // of slot shifts caused by dead lower-pids.
+    // CPU% delta against this record's own previous sample (PID-stable).
     nvtop_time now;
     nvtop_get_current_time(&now);
-    struct prev_sample *ps = &pool->prev[pid];
-    if (ps->has_prev) {
-      double dt = nvtop_difftime(ps->time, now);
+    if (rec->has_prev) {
+      double dt = nvtop_difftime(rec->prev_time, now);
       if (dt > 0.) {
-        double dutime = (double)(rec->utime - ps->utime) / pool->ticks;
-        double dstime = (double)(rec->stime - ps->stime) / pool->ticks;
+        double dutime = (double)(rec->utime - rec->prev_utime) / pool->ticks;
+        double dstime = (double)(rec->stime - rec->prev_stime) / pool->ticks;
         rec->cpu_user_pct = 100. * dutime / dt;
         rec->cpu_sys_pct = 100. * dstime / dt;
         rec->cpu_pct = rec->cpu_user_pct + rec->cpu_sys_pct;
@@ -386,13 +377,18 @@ void sys_proc_pool_produce(struct sys_proc_pool *pool, enum process_field sort_k
     } else {
       rec->cpu_user_pct = rec->cpu_sys_pct = rec->cpu_pct = 0.;
     }
-    ps->utime = rec->utime;
-    ps->stime = rec->stime;
-    ps->time = now;
-    ps->has_prev = true;
+    rec->prev_utime = rec->utime;
+    rec->prev_stime = rec->stime;
+    rec->prev_time = now;
+    rec->has_prev = true;
     rec->total_time = (double)(rec->utime + rec->stime) / pool->ticks;
     rec->mem_pct = pool->total_ram > 0. ? 100. * (double)rec->rss / pool->total_ram : 0.;
     rec->fresh = true;
+
+    // Also place this record into the slot-ordered working array for the frame.
+    if (h >= pool->record_slots)
+      records_append_slot(pool);
+    pool->records[h] = rec;
     h++;
   }
   closedir(proc);

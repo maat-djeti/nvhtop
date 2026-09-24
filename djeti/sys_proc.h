@@ -65,9 +65,14 @@ struct sys_proc {
   unsigned gpu_id;
   unsigned gpu_rate;
 
-  // CPU% delta state now lives in the pool's PID-indexed prev[] baseline
-  // (sys_proc_pool.c), not here: records are anonymous slots and a dead
-  // lower-pid shifts the slot mapping, which zeroed per-slot deltas.
+  // CPU% delta state. The record is addressed by PID via the pool's
+  // indexed_collection[pid], so this baseline is stable per-pid across scans
+  // (a dead lower-pid no longer shifts it, which is what zeroed per-slot
+  // deltas and caused the flicker).
+  nvtop_time prev_time;
+  unsigned long long prev_utime;
+  unsigned long long prev_stime;
+  bool has_prev;
 
   // Producer sets true when it samples this record; consumer sets false when
   // it renders it. Safe under the out-of-phase semaphore ordering (producer
