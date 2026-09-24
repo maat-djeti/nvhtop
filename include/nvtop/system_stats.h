@@ -43,6 +43,12 @@ struct sys_stats {
   double core_sys_pct[SYS_STATS_MAX_CORES];
   // Memory, in KiB.
   unsigned long long mem_total, mem_used, mem_free, mem_available;
+  // htop-style memory classes (KiB), for the 4-colour bar:
+  //   mem_used_class     = app-used            (green)  = total - free - cached - sreclaimable - buffers
+  //   mem_shared_class   = Shmem               (magenta)
+  //   mem_buffers_class  = Buffers             (blue)   = raw block-device I/O cache
+  //   mem_cache_class    = Cached + SReclaimable - Shmem (orange)
+  unsigned long long mem_used_class, mem_shared_class, mem_buffers_class, mem_cache_class;
   unsigned long long swap_total, swap_used, swap_free;
   // Load averages (1, 5, 15 min).
   double load1, load5, load15;

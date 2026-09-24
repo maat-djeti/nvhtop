@@ -37,6 +37,7 @@ struct sys_proc {
   pid_t pid;
   pid_t ppid;
   char user[13]; // 12 chars + NUL
+  unsigned int uid; // real UID (for USER column colouring)
 
   // From /proc/[pid]/stat
   char state;          // R/S/D/Z/T/I/...
@@ -78,7 +79,11 @@ struct sys_proc {
   bool fresh;
 
   // Command line, fixed-width, truncated to fit (I6). No arena, no malloc.
-  char command[64];
+  char command[120];
+  // True when command was taken from /proc/<pid>/comm (kernel threads, empty
+  // cmdline) rather than the real /proc/<pid>/cmdline. Rendered in the default
+  // (white) colour; a real cmdline is rendered green.
+  bool cmd_from_comm;
 };
 
 #endif // NVTOP_SYS_PROC_H_

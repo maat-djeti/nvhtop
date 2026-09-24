@@ -65,6 +65,7 @@ static void read_meminfo(struct sys_stats *out) {
     return;
   char line[256];
   unsigned long long mem_total = 0, mem_free = 0, mem_avail = 0, swap_total = 0, swap_free = 0;
+  unsigned long long buffers = 0, cached = 0, shmem = 0, sreclaimable = 0;
   while (fgets(line, sizeof(line), f)) {
     unsigned long long v;
     if (sscanf(line, "MemTotal: %llu kB", &v) == 1)
@@ -73,6 +74,14 @@ static void read_meminfo(struct sys_stats *out) {
       mem_free = v;
     else if (sscanf(line, "MemAvailable: %llu kB", &v) == 1)
       mem_avail = v;
+    else if (sscanf(line, "Buffers: %llu kB", &v) == 1)
+      buffers = v;
+    else if (sscanf(line, "Cached: %llu kB", &v) == 1)
+      cached = v;
+    else if (sscanf(line, "Shmem: %llu kB", &v) == 1)
+      shmem = v;
+    else if (sscanf(line, "SReclaimable: %llu kB", &v) == 1)
+      sreclaimable = v;
     else if (sscanf(line, "SwapTotal: %llu kB", &v) == 1)
       swap_total = v;
     else if (sscanf(line, "SwapFree: %llu kB", &v) == 1)
@@ -83,6 +92,15 @@ static void read_meminfo(struct sys_stats *out) {
   out->mem_free = mem_free;
   out->mem_available = mem_avail;
   out->mem_used = mem_total > mem_avail ? mem_total - mem_avail : 0;
+  // htop memory classes (linux/LinuxMachine.c). Shmem is part of Cached, so it
+  // is subtracted from the cache class and shown separately as "shared".
+  out->mem_shared_class = shmem;
+  out->mem_buffers_class = buffers;
+  out->mem_cache_class = (cached + sreclaimable) >= shmem ? cached + sreclaimable - shmem : 0;
+  // App-used = total minus everything reclaimable (free, cache, buffers),
+  // matching htop's "used" (buffers shown as their own blue segment).
+  unsigned long long used_diff = mem_free + cached + sreclaimable + buffers;
+  out->mem_used_class = mem_total >= used_diff ? mem_total - used_diff : (mem_total > mem_free ? mem_total - mem_free : 0);
   out->swap_total = swap_total;
   out->swap_free = swap_free;
   out->swap_used = swap_total > swap_free ? swap_total - swap_free : 0;

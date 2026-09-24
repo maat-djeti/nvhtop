@@ -41,6 +41,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1548,6 +1549,17 @@ static void print_sys_processes_on_screen(struct sys_proc *const *procs, unsigne
   }
   rows -= 1;
 
+  // Current user's name, for the USER column: own processes are default-coloured,
+  // other users' processes are shadowed (htop PROCESS_SHADOW).
+  static char self_user[13] = {0};
+  if (self_user[0] == '\0') {
+    struct passwd *pw = getpwuid(getuid());
+    if (pw && pw->pw_name)
+      snprintf(self_user, sizeof(self_user), "%s", pw->pw_name);
+    else
+      snprintf(self_user, sizeof(self_user), "%d", (int)getuid());
+  }
+
   update_selected_offset_with_window_size(&process->selected_row, &process->offset, rows, count);
   if (process->offset_column + cols >= process_buffer_line_size)
     process->offset_column = process_buffer_line_size - cols - 1;
@@ -1582,94 +1594,106 @@ static void print_sys_processes_on_screen(struct sys_proc *const *procs, unsigne
   static unsigned printed_last_call = 0;
   unsigned last_line_printed = 0;
   for (unsigned int i = start_at; i < end_at && i < count; ++i) {
-    memset(process_print_buffer, 0, sizeof(process_print_buffer));
-    printed = 0;
     struct sys_proc *sp = procs[i];
-
-    if (process_is_field_displayed(process_pid, fields)) {
-      snprintf(pid_str, sizeof(pid_str), "%d", (int)sp->pid);
-      printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                          sizeof_process_field[process_pid], pid_str);
-    }
-    if (process_is_field_displayed(process_user, fields))
-      printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                          sizeof_process_field[process_user], sp->user);
-    if (process_is_field_displayed(process_ppid, fields)) {
-      snprintf(ppid_str, sizeof(ppid_str), "%d", (int)sp->ppid);
-      printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                          sizeof_process_field[process_ppid], ppid_str);
-    }
-    if (process_is_field_displayed(process_priority, fields)) {
-      snprintf(pri_str, sizeof(pri_str), "%d", sp->priority);
-      printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                          sizeof_process_field[process_priority], pri_str);
-    }
-    if (process_is_field_displayed(process_nice, fields)) {
-      snprintf(nice_str, sizeof(nice_str), "%d", sp->nice);
-      printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                          sizeof_process_field[process_nice], nice_str);
-    }
-    if (process_is_field_displayed(process_state, fields)) {
-      snprintf(state_str, sizeof(state_str), "%c", sp->state);
-      printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                          sizeof_process_field[process_state], state_str);
-    }
-    if (process_is_field_displayed(process_threads, fields)) {
-      snprintf(thr_str, sizeof(thr_str), "%ld", (long)sp->threads);
-      printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                          sizeof_process_field[process_threads], thr_str);
-    }
-    if (process_is_field_displayed(process_virt, fields)) {
-      format_mem_human(sp->vsize, virt_str, sizeof(virt_str));
-      printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                          sizeof_process_field[process_virt], virt_str);
-    }
-    if (process_is_field_displayed(process_res, fields)) {
-      format_mem_human(sp->rss, res_str, sizeof(res_str));
-      printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                          sizeof_process_field[process_res], res_str);
-    }
-    if (process_is_field_displayed(process_cpu_pct, fields)) {
-      snprintf(cpup_str, sizeof(cpup_str), "%5.1f", sp->cpu_pct);
-      printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                          sizeof_process_field[process_cpu_pct], cpup_str);
-    }
-    if (process_is_field_displayed(process_time, fields)) {
-      format_time_hms(sp->total_time, time_str, sizeof(time_str));
-      printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                          sizeof_process_field[process_time], time_str);
-    }
-    if (process_is_field_displayed(process_gpu_id, fields)) {
-      if (sp->has_gpu) {
-        snprintf(pid_str, sizeof(pid_str), "%u", sp->gpu_id);
-        printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                            sizeof_process_field[process_gpu_id], pid_str);
-      } else {
-        printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                            sizeof_process_field[process_gpu_id], "-");
-      }
-    }
-    if (process_is_field_displayed(process_gpu_rate, fields)) {
-      if (sp->has_gpu) {
-        snprintf(pid_str, sizeof(pid_str), "%u%%", sp->gpu_rate);
-        printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                            sizeof_process_field[process_gpu_rate], pid_str);
-      } else {
-        printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%*s ",
-                            sizeof_process_field[process_gpu_rate], "-");
-      }
-    }
-    if (process_is_field_displayed(process_command, fields))
-      printed += snprintf(&process_print_buffer[printed], process_buffer_line_size - printed, "%.*s",
-                          process_buffer_line_size - printed, sp->command ? sp->command : "");
-
     unsigned int write_at = i - start_at + 1;
-    mvwprintw(win, write_at, 0, "%.*s", cols, &process_print_buffer[process->offset_column]);
-    unsigned row, col;
-    getyx(win, row, col);
-    (void)col;
-    if (row == write_at)
-      wclrtoeol(win);
+    wmove(win, write_at, 0);
+    wclrtoeol(win);
+
+    // Draw every displayed field left-to-right in order, each in its own
+    // colour. x is the running column offset within the (unscrolled) row;
+    // subtract offset_column for the on-screen position.
+    int x = 0;
+    // Helper macro: draw a fixed-width field at column x with colour pair.
+    // Advances x by the field width + 1 separator space.
+    #define DRAW_FIELD(field, text, pair)                                       \
+      do {                                                                      \
+        if (process_is_field_displayed(field, fields)) {                        \
+          int sx = x - (int)process->offset_column;                             \
+          if (sx >= 0 && sx < (int)cols) {                                      \
+            wattr_on(win, COLOR_PAIR(pair), NULL);                              \
+            mvwprintw(win, write_at, sx, "%*s ", (int)sizeof_process_field[field], text); \
+            wattr_off(win, COLOR_PAIR(pair), NULL);                             \
+          }                                                                     \
+          x += (int)sizeof_process_field[field] + 1;                            \
+        }                                                                       \
+      } while (0)
+
+    snprintf(pid_str, sizeof(pid_str), "%d", (int)sp->pid);
+    DRAW_FIELD(process_pid, pid_str, 0);
+
+    // USER colour: magenta = root, dim (lighter) white = another user's
+    // process, default white = your own process.
+    if (process_is_field_displayed(process_user, fields)) {
+      int sx = x - (int)process->offset_column;
+      if (sx >= 0 && sx < (int)cols) {
+        if (sp->uid == 0) {
+          wattr_on(win, COLOR_PAIR(magenta_color), NULL);
+          mvwprintw(win, write_at, sx, "%*s ", (int)sizeof_process_field[process_user], sp->user);
+          wattr_off(win, COLOR_PAIR(magenta_color), NULL);
+        } else if (strcmp(sp->user, self_user) != 0) {
+          // Another user: dim (lighter) white, default colour pair.
+          wattr_on(win, A_DIM, NULL);
+          mvwprintw(win, write_at, sx, "%*s ", (int)sizeof_process_field[process_user], sp->user);
+          wattr_off(win, A_DIM, NULL);
+        } else {
+          mvwprintw(win, write_at, sx, "%*s ", (int)sizeof_process_field[process_user], sp->user);
+        }
+      }
+      x += (int)sizeof_process_field[process_user] + 1;
+    }
+
+    snprintf(ppid_str, sizeof(ppid_str), "%d", (int)sp->ppid);
+    DRAW_FIELD(process_ppid, ppid_str, 0);
+
+    snprintf(pri_str, sizeof(pri_str), "%d", sp->priority);
+    DRAW_FIELD(process_priority, pri_str, 0);
+
+    snprintf(nice_str, sizeof(nice_str), "%d", sp->nice);
+    short nice_pair = (sp->nice != 0) ? red_color : 0; // red = non-zero nice
+    DRAW_FIELD(process_nice, nice_str, nice_pair);
+
+    snprintf(state_str, sizeof(state_str), "%c", sp->state);
+    DRAW_FIELD(process_state, state_str, 0);
+
+    snprintf(thr_str, sizeof(thr_str), "%ld", (long)sp->threads);
+    DRAW_FIELD(process_threads, thr_str, 0);
+
+    format_mem_human(sp->vsize, virt_str, sizeof(virt_str));
+    DRAW_FIELD(process_virt, virt_str, 0);
+
+    format_mem_human(sp->rss, res_str, sizeof(res_str));
+    DRAW_FIELD(process_res, res_str, 0);
+
+    snprintf(cpup_str, sizeof(cpup_str), "%5.1f", sp->cpu_pct);
+    DRAW_FIELD(process_cpu_pct, cpup_str, 0);
+
+    format_time_hms(sp->total_time, time_str, sizeof(time_str));
+    DRAW_FIELD(process_time, time_str, 0);
+
+    if (sp->has_gpu)
+      snprintf(pid_str, sizeof(pid_str), "%u", sp->gpu_id);
+    else
+      snprintf(pid_str, sizeof(pid_str), "-");
+    DRAW_FIELD(process_gpu_id, pid_str, 0);
+
+    if (sp->has_gpu)
+      snprintf(pid_str, sizeof(pid_str), "%u%%", sp->gpu_rate);
+    else
+      snprintf(pid_str, sizeof(pid_str), "-");
+    DRAW_FIELD(process_gpu_rate, pid_str, 0);
+
+    // Command: green for a real cmdline, default (white) for the comm fallback.
+    if (process_is_field_displayed(process_command, fields) && sp->command && sp->command[0]) {
+      int sx = x - (int)process->offset_column;
+      if (sx >= 0 && sx < (int)cols) {
+        short pair = sp->cmd_from_comm ? 0 : green_color;
+        wattr_on(win, COLOR_PAIR(pair), NULL);
+        mvwprintw(win, write_at, sx, "%.*s", (int)(cols - sx), sp->command);
+        wattr_off(win, COLOR_PAIR(pair), NULL);
+      }
+    }
+    #undef DRAW_FIELD
+
     last_line_printed = write_at;
     if (i == special_row)
       mvwchgat(win, write_at, 0, -1, A_STANDOUT, cyan_color, NULL);
@@ -2186,7 +2210,7 @@ static void draw_sys_stats(struct nvtop_interface *interface) {
   int row = (int)grid_rows;
   char bar[256];
 
-  // Mem line
+  // Mem line: 3-colour htop-style bar (green=used, magenta=shared, orange=cache).
   if (row < rows) {
     double mt = st.mem_total / 1048576.0;
     double mu = st.mem_used / 1048576.0;
@@ -2195,18 +2219,37 @@ static void draw_sys_stats(struct nvtop_interface *interface) {
       width = 4;
     if (width >= (int)sizeof(bar))
       width = (int)sizeof(bar) - 1;
-    int filled = mt > 0 ? (int)(mu / mt * width) : 0;
-    if (filled > width)
-      filled = width;
-    snprintf(bar, sizeof(bar), "%*s", width, "");
-    for (int c = 0; c < filled; ++c)
-      bar[c] = '|';
-    bar[width] = '\0';
-    mvwprintw(win, row, 0, "Mem  [%s] %.1f/%.1fGi", bar, mu, mt);
+    // Scale each class (KiB) to a column count of the bar width.
+    unsigned long long total_kib = st.mem_total ? st.mem_total : 1;
+    int used_cols = (int)((double)st.mem_used_class * width / total_kib);
+    int shared_cols = (int)((double)st.mem_shared_class * width / total_kib);
+    int buffers_cols = (int)((double)st.mem_buffers_class * width / total_kib);
+    int cache_cols = (int)((double)st.mem_cache_class * width / total_kib);
+    // "Mem  [" is 6 chars; the bar body runs from col 6 to col 6+width-1, with
+    // the closing ']' at col 6+width-1.
+    int pre = 6;
+    mvwprintw(win, row, 0, "Mem  [");
+    int x = pre;
+    // htop order: used(green) shared(magenta) buffers(blue) cache(orange).
+    short pairs[4] = {green_color, magenta_color, blue_color, yellow_color};
+    int seg[4] = {used_cols, shared_cols, buffers_cols, cache_cols};
+    for (int s = 0; s < 4; ++s) {
+      for (int c = 0; c < seg[s] && x < pre + width - 1; ++c) {
+        wattr_on(win, COLOR_PAIR(pairs[s]), NULL);
+        mvwaddch(win, row, x, '|');
+        wattr_off(win, COLOR_PAIR(pairs[s]), NULL);
+        x++;
+      }
+    }
+    // Fill the rest of the bar as empty, then close the bracket.
+    for (int c = x; c < pre + width - 1; ++c)
+      mvwaddch(win, row, c, ' ');
+    mvwaddch(win, row, pre + width - 1, ']');
+    mvwprintw(win, row, pre + width + 1, "%.1f/%.1fGi", mu, mt);
     row++;
   }
 
-  // Swap line
+  // Swap line: red bar, same geometry as the Mem line so ']' aligns.
   if (row < rows) {
     double stt = st.swap_total / 1048576.0;
     double su = st.swap_used / 1048576.0;
@@ -2216,13 +2259,21 @@ static void draw_sys_stats(struct nvtop_interface *interface) {
     if (width >= (int)sizeof(bar))
       width = (int)sizeof(bar) - 1;
     int filled = stt > 0 ? (int)(su / stt * width) : 0;
-    if (filled > width)
-      filled = width;
-    snprintf(bar, sizeof(bar), "%*s", width, "");
-    for (int c = 0; c < filled; ++c)
-      bar[c] = '|';
-    bar[width] = '\0';
-    mvwprintw(win, row, 0, "Swp  [%s] %.1f/%.1fGi", bar, su, stt);
+    if (filled > width - 1)
+      filled = width - 1;
+    int pre = 6;
+    mvwprintw(win, row, 0, "Swp  [");
+    int x = pre;
+    for (int c = 0; c < filled && x < pre + width - 1; ++c) {
+      wattr_on(win, COLOR_PAIR(red_color), NULL);
+      mvwaddch(win, row, x, '|');
+      wattr_off(win, COLOR_PAIR(red_color), NULL);
+      x++;
+    }
+    for (int c = x; c < pre + width - 1; ++c)
+      mvwaddch(win, row, c, ' ');
+    mvwaddch(win, row, pre + width - 1, ']');
+    mvwprintw(win, row, pre + width + 1, "%.1f/%.1fGi", su, stt);
     row++;
   }
 

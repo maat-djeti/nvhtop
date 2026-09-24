@@ -97,48 +97,27 @@ static void read_user(pid_t pid, char *out, size_t out_size) {
     snprintf(out, out_size, "%u", (unsigned)st.st_uid);
 }
 
-static void read_command(pid_t pid, char **out) {
-  *out = NULL;
+// Reads /proc/<pid>/cmdline directly into `out` (a fixed char[]), joining
+// NUL-separated args with spaces in place. Returns true on success.
+static bool read_command(pid_t pid, char *out, size_t out_size) {
   int written = snprintf(pid_path, pid_path_size, "/proc/%" PRIdMAX "/cmdline", (intmax_t)pid);
   if (written == pid_path_size)
-    return;
+    return false;
   FILE *f = fopen(pid_path, "r");
   if (!f)
-    return;
-  size_t cap = 256;
-  char *buf = malloc(cap);
-  if (!buf) {
-    fclose(f);
-    return;
-  }
-  size_t total = 0;
-  size_t n;
-  while ((n = fread(buf + total, 1, cap - total, f)) > 0) {
-    total += n;
-    if (total == cap) {
-      cap *= 2;
-      char *nb = realloc(buf, cap);
-      if (!nb) {
-        free(buf);
-        fclose(f);
-        return;
-      }
-      buf = nb;
-    }
-  }
+    return false;
+  size_t total = fread(out, 1, out_size - 1, f);
   fclose(f);
-  if (total == 0) {
-    free(buf);
-    return;
-  }
-  // Replace NUL separators with spaces, trim trailing
+  if (total == 0)
+    return false;
+  out[total] = '\0';
   for (size_t i = 0; i < total; ++i)
-    if (buf[i] == '\0')
-      buf[i] = ' ';
-  while (total > 0 && buf[total - 1] == ' ')
+    if (out[i] == '\0')
+      out[i] = ' ';
+  while (total > 0 && out[total - 1] == ' ')
     total--;
-  buf[total] = '\0';
-  *out = buf;
+  out[total] = '\0';
+  return true;
 }
 
 // Parse /proc/[pid]/stat. Returns true on success.
@@ -250,16 +229,7 @@ struct sys_proc *sys_processes_scan(unsigned *count, const pid_t *gpu_pids, cons
     sp->rss = rss;
     sp->total_time = total_time;
     read_user(pid, sp->user, sizeof(sp->user));
-    // read_command writes into the fixed command[64] buffer
-    {
-      char *cmd = sp->command;
-      read_command(pid, &cmd);
-      // read_command may have set cmd to a malloc'd string; copy into fixed buffer
-      if (cmd && cmd != sp->command) {
-        snprintf(sp->command, sizeof(sp->command), "%s", cmd);
-        free(cmd);
-      }
-    }
+    read_command(pid, sp->command, sizeof(sp->command));
 
     // CPU% delta
     nvtop_time now;
@@ -311,11 +281,9 @@ struct sys_proc *sys_processes_scan(unsigned *count, const pid_t *gpu_pids, cons
 }
 
 void sys_processes_free(struct sys_proc *procs, unsigned count) {
-  if (procs) {
-    for (unsigned i = 0; i < count; ++i)
-      free(procs[i].command);
+  (void)count;
+  if (procs)
     free(procs);
-  }
   // NOTE: do NOT reset prev_samples here. The previous-tick CPU% state must
   // persist across calls so the next scan can compute deltas. It is cleaned up
   // incrementally inside sys_processes_scan (dead PIDs are dropped there).
