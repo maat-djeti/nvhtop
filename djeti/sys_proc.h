@@ -46,6 +46,7 @@ struct sys_proc {
   long threads;
   unsigned long long vsize; // bytes
   unsigned long long rss;   // bytes (pages * page_size)
+  unsigned long long shr;   // bytes (shared pages * page_size)
 
   // Raw CPU counters from /proc/[pid]/stat (clock ticks)
   unsigned long long utime;

@@ -52,6 +52,7 @@ enum process_field {
   process_threads,
   process_virt,
   process_res,
+  process_shr,
   process_cpu_pct,
   process_time,
   process_gpu_id,

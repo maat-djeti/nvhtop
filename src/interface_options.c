@@ -193,7 +193,7 @@ static const char process_hide_nvtop_process[] = "HideNvtopProcess";
 static const char process_value_sortby[] = "SortBy";
 static const char process_value_display_field[] = "DisplayField";
 static const char *process_sortby_vals[process_field_count + 1] = {
-    "pId", "user", "ppid", "priority", "nice", "state", "threads", "virt", "res", "cpuPct", "time", "gpuId",
+    "pId", "user", "ppid", "priority", "nice", "state", "threads", "virt", "res", "shr", "cpuPct", "time", "gpuId",
     "type", "gpuRate", "encRate", "decRate", "memory", "cpuUsage", "cpuMem", "cmdline", "none"};
 static const char process_value_sort_order[] = "SortOrder";
 static const char process_sort_descending[] = "descending";
@@ -303,7 +303,7 @@ static int nvtop_option_ini_handler(void *user, const char *section, const char 
       }
     }
     if (strcmp(name, process_value_display_field) == 0) {
-      for (enum process_field i = process_pid; i < process_field_count + 1; ++i) {
+      for (enum process_field i = process_pid; i < process_field_count; ++i) {
         if (strcmp(value, process_sortby_vals[i]) == 0) {
           ini_data->options->process_fields_displayed =
               process_add_field_to_display(i, ini_data->options->process_fields_displayed);

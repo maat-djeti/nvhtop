@@ -106,6 +106,25 @@ static void sorted_append_slot(struct sys_proc_pool *pool) {
 // /proc readers
 // ---------------------------------------------------------------------------
 
+// Tokenize a whitespace-separated line into an array of field pointers.
+// Returns the number of fields. `fields` must hold at least `max` entries.
+static int tokenize(char *line, char *fields[][2], int max) {
+  int count = 0;
+  char *p = line;
+  while (*p && count < max) {
+    while (*p == ' ' || *p == '\t')
+      p++;
+    if (!*p)
+      break;
+    fields[count][0] = p;
+    while (*p && *p != ' ' && *p != '\t')
+      p++;
+    fields[count][1] = p; // one past the end (not NUL-terminated yet)
+    count++;
+  }
+  return count;
+}
+
 static bool read_stat(struct sys_proc_pool *pool, pid_t pid, struct sys_proc *rec) {
   char path[DJETI_PATH_MAX];
   int w = snprintf(path, sizeof(path), "/proc/%" PRIdMAX "/stat", (intmax_t)pid);
@@ -118,41 +137,60 @@ static bool read_stat(struct sys_proc_pool *pool, pid_t pid, struct sys_proc *re
   bool ok = false;
   if (fgets(line, sizeof(line), f)) {
     // comm (field 2) is in parentheses and may contain spaces or parens;
-    // anchor on the last ')' in the line.
+    // anchor on the last ')' in the line. Everything after is whitespace-
+    // separated fields, indexed by position (1-based per the procps man page).
     char *open = strchr(line, '(');
     char *close = open ? strrchr(open, ')') : NULL;
     if (open && close) {
+      // NUL-terminate the tail so tokenize sees a clean string.
       char *p = close + 1;
       while (*p == ' ')
         p++;
-      // f3 state, f4 ppid, f5..f13 skipped, f14 utime, f15 stime,
-      // f16 cutime, f17 cstime, f18 priority, f19 nice, f20 threads,
-      // f21 f22 skipped, f23 vsize, f24 rss (pages)
-      char state_c;
-      int ppid, priority, nice;
-      long threads;
-      unsigned long long utime, stime, cutime, cstime, vsize, rss;
-      int n = sscanf(p, "%c %d %*d %*d %*d %*d %*d %*d %*d %*d %*d %llu %llu %lld %lld %d %d %ld %*d %*d %llu %lld",
-                     &state_c, &ppid, &utime, &stime, &cutime, &cstime, &priority, &nice,
-                     &threads, &vsize, &rss);
-      if (n == 11) {
-        rec->state = state_c;
-        rec->ppid = (pid_t)ppid;
-        rec->utime = utime;
-        rec->stime = stime;
-        rec->cutime = (unsigned long long)cutime;
-        rec->cstime = (unsigned long long)cstime;
-        rec->priority = priority;
-        rec->nice = nice;
-        rec->threads = threads;
-        rec->vsize = vsize;
-        rec->rss = rss * (unsigned long long)pool->page_size;
+      // Tokenize the tail: f3=state, f4=ppid, f14=utime, f15=stime,
+      // f16=cutime, f17=cstime, f18=priority, f19=nice, f20=threads,
+      // f23=vsize, f24=rss (pages). Index = field_number - 3.
+      char *fields[64][2];
+      int nf = tokenize(p, fields, 64);
+      // Need at least up to f24 => index 21.
+      if (nf >= 22) {
+        rec->state = fields[0][0][0];           // f3
+        rec->ppid = (pid_t)strtol(fields[1][0], NULL, 10); // f4
+        rec->utime = strtoull(fields[11][0], NULL, 10);   // f14
+        rec->stime = strtoull(fields[12][0], NULL, 10);   // f15
+        rec->cutime = strtoull(fields[13][0], NULL, 10);  // f16
+        rec->cstime = strtoull(fields[14][0], NULL, 10);  // f17
+        rec->priority = (int)strtol(fields[15][0], NULL, 10); // f18
+        rec->nice = (int)strtol(fields[16][0], NULL, 10);     // f19
+        rec->threads = strtol(fields[17][0], NULL, 10);       // f20
+        rec->vsize = strtoull(fields[20][0], NULL, 10);       // f23
+        rec->rss = strtoull(fields[21][0], NULL, 10) * (unsigned long long)pool->page_size; // f24
         ok = true;
       }
     }
   }
   fclose(f);
   return ok;
+}
+
+// Shared pages come from /proc/<pid>/statm field 3 (not /proc/<pid>/stat).
+static void read_shr(pid_t pid, struct sys_proc *rec, long page_size) {
+  char path[DJETI_PATH_MAX];
+  int w = snprintf(path, sizeof(path), "/proc/%" PRIdMAX "/statm", (intmax_t)pid);
+  if (w < 0 || (size_t)w >= sizeof(path))
+    return;
+  FILE *f = fopen(path, "r");
+  if (!f)
+    return;
+  char line[256];
+  if (fgets(line, sizeof(line), f)) {
+    char *fields[8][2];
+    int nf = tokenize(line, fields, 8);
+    // statm: size(1) resident(2) shared(3) text(4) lib(5) data(6) dt(7)
+    if (nf >= 3) {
+      rec->shr = strtoull(fields[2][0], NULL, 10) * (unsigned long long)page_size;
+    }
+  }
+  fclose(f);
 }
 
 static void read_user(pid_t pid, struct sys_proc *rec) {
@@ -234,6 +272,8 @@ static uint64_t sort_value(const struct sys_proc *r, enum process_field key) {
     return (uint64_t)r->vsize;
   case process_res:
     return (uint64_t)r->rss;
+  case process_shr:
+    return (uint64_t)r->shr;
   case process_cpu_pct:
     return (uint64_t)(r->cpu_pct * 100.0);
   case process_memory:
@@ -357,6 +397,7 @@ void sys_proc_pool_produce(struct sys_proc_pool *pool, enum process_field sort_k
     rec->pid = pid; // DATA, not a key (I2)
     if (!read_stat(pool, pid, rec))
       continue; // vanished mid-scan; slot not counted in h
+    read_shr(pid, rec, pool->page_size);
     read_user(pid, rec);
     read_command(pid, rec);
 

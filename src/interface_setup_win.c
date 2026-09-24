@@ -128,7 +128,8 @@ static const char *setup_proc_list_option_description[setup_proc_list_options_co
 
 static const char *setup_proc_list_value_descriptions[process_field_count] = {
     "Process Id",      "User name",  "Parent pid",  "Priority", "Nice",       "State",
-    "Threads",         "Virtual mem", "Resident",   "CPU %",    "CPU time",   "Device Id",
+    "Threads",         "Virtual mem", "Resident",   "Shared",   "CPU %",      "CPU time",
+    "Device Id",
     "Workload type",   "GPU usage",   "Encoder",     "Decoder",  "GPU memory", "CPU usage",
     "CPU memory usage", "Command"};
 

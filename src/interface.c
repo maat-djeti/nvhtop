@@ -129,7 +129,8 @@ bool nvtop_probe_ecc_list(struct list_head *devices) {
 static unsigned int sizeof_process_field[process_field_count] = {
     [process_pid] = 7,        [process_user] = 12,        [process_ppid] = 5,      [process_priority] = 4,
     [process_nice] = 3,       [process_state] = 2,        [process_threads] = 5,   [process_virt] = 8,
-    [process_res] = 8,        [process_cpu_pct] = 6,      [process_time] = 8,      [process_gpu_id] = 3,
+    [process_res] = 8,        [process_shr] = 8,          [process_cpu_pct] = 6,   [process_time] = 8,
+    [process_gpu_id] = 3,
     [process_type] = 8,       [process_gpu_rate] = 4,     [process_enc_rate] = 4,  [process_dec_rate] = 4,
     [process_memory] = 14, // 9 for mem 5 for %
     [process_cpu_usage] = 6, [process_cpu_mem_usage] = 9, [process_command] = 0,
@@ -1455,8 +1456,8 @@ static int compare_process_dec_rate_asc(const void *pp1, const void *pp2) {
 // ---------------------------------------------------------------------------
 
 static const char *columnName[process_field_count] = {
-    "PID", "USER", "PPID", "PRI", "NI", "S", "THR", "VIRT", "RES", "CPU%", "TIME", "DEV", "TYPE", "GPU",
-    "ENC", "DEC", "GPU MEM", "CPU", "HOST MEM", "Command",
+    "PID", "USER", "PPID", "PRI", "NI", "S", "THR", "VIRT", "RES", "SHR", "CPU%", "TIME", "DEV", "TYPE",
+    "GPU", "ENC", "DEC", "GPU MEM", "CPU", "HOST MEM", "Command",
 };
 
 #define process_buffer_line_size 8192
@@ -1496,7 +1497,9 @@ static int sys_compare(const void *a, const void *b) {
   case process_threads: r = (x->threads > y->threads) - (x->threads < y->threads); break;
   case process_virt: r = (x->vsize > y->vsize) - (x->vsize < y->vsize); break;
   case process_res: r = (x->rss > y->rss) - (x->rss < y->rss); break;
+  case process_shr: r = (x->shr > y->shr) - (x->shr < y->shr); break;
   case process_cpu_pct: r = (x->cpu_pct > y->cpu_pct) - (x->cpu_pct < y->cpu_pct); break;
+  case process_memory: r = (x->mem_pct > y->mem_pct) - (x->mem_pct < y->mem_pct); break;
   case process_time: r = (x->total_time > y->total_time) - (x->total_time < y->total_time); break;
   case process_gpu_id: r = (x->gpu_id > y->gpu_id) - (x->gpu_id < y->gpu_id); break;
   case process_gpu_rate: r = (x->gpu_rate > y->gpu_rate) - (x->gpu_rate < y->gpu_rate); break;
@@ -1571,7 +1574,7 @@ static void print_sys_processes_on_screen(struct sys_proc *const *procs, unsigne
   size_t special_row = process->selected_row;
 
   char pid_str[16], ppid_str[16], pri_str[8], nice_str[8], state_str[4], thr_str[8];
-  char virt_str[16], res_str[16], cpup_str[12], time_str[16];
+  char virt_str[16], res_str[16], shr_str[16], cpup_str[12], time_str[16];
 
   unsigned int start_at = process->offset;
   unsigned int end_at = start_at + rows;
@@ -1667,6 +1670,9 @@ static void print_sys_processes_on_screen(struct sys_proc *const *procs, unsigne
 
     format_mem_human(sp->rss, res_str, sizeof(res_str));
     DRAW_FIELD(process_res, res_str, 0);
+
+    format_mem_human(sp->shr, shr_str, sizeof(shr_str));
+    DRAW_FIELD(process_shr, shr_str, 0);
 
     snprintf(cpup_str, sizeof(cpup_str), "%5.1f", sp->cpu_pct);
     DRAW_FIELD(process_cpu_pct, cpup_str, 0);

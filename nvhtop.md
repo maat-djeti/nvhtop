@@ -173,6 +173,76 @@ cmake -B build -G Ninja
 cmake --build build
 ```
 
+## Config file
+
+nvhtop saves its options (displayed process columns, sort order, plot settings,
+per-device options) to an INI file at:
+
+```
+$XDG_CONFIG_HOME/nvtop/interface.ini   (default: ~/.config/nvtop/interface.ini)
+```
+
+The file is written:
+
+- automatically on first run (when the startup information messages are shown
+  and acknowledged), and
+- whenever F12 is pressed, or the setup window (F2) is closed with changes.
+
+It is read on every start-up. If the file exists, the displayed-column bits
+are taken from it; only when the file is absent (or the sentinel key is missing)
+fall back to `process_default_displayed_field()`.
+
+### How the columns are stored
+
+Each displayed column is stored as one line:
+
+```
+[Processes]
+DisplayField = pId
+DisplayField = user
+DisplayField = priority
+...
+```
+
+The value (e.g. `pId`, `cpuPct`, `cmdline`) is matched against the
+`process_sortby_vals[]` table in `src/interface_options.c`, which is a
+**position-based** array indexed by the `enum process_field` value. The matched
+index is used as the bit position in the `process_fields_displayed` bitmask.
+
+### Why a stale config file can ruin the display
+
+Because `process_sortby_vals[]` is position-based, **inserting a new field into
+`enum process_field` shifts every subsequent index by one**. If a config file
+was written by an older binary (before the new field existed) and is then read
+by the newer binary, the name-to-index mapping is off by one for every field
+after the insertion point. The result is that the wrong bits are set in
+`process_fields_displayed`: columns that should be shown are hidden, and columns
+that should be hidden appear.
+
+**If the process table suddenly shows the wrong columns after an upgrade,
+delete the config file and restart:**
+
+```bash
+rm ~/.config/nvtop/interface.ini
+```
+
+(nvhtop will regenerate it with the correct field set on next start-up.)
+
+### Rule for adding a new process field
+
+When adding a new value to `enum process_field` (in
+`include/nvtop/interface_common.h`), you **must** also insert the matching
+entry into **every** position-based array in the same order:
+
+| Array | File |
+|-------|------|
+| `process_sortby_vals[]` | `src/interface_options.c` |
+| `columnName[]` | `src/interface.c` |
+| `setup_proc_list_value_descriptions[]` | `src/interface_setup_win.c` |
+
+(`sizeof_process_field[]` uses designated initializers and is safe, but the
+three arrays above are not.)
+
 ## Test
 
 `djeti/test_pool.c` is a standalone smoke test (not wired into CTest):

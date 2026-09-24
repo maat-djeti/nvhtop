@@ -124,6 +124,7 @@ inline process_field_displayed process_default_displayed_field(void) {
   to_display = process_add_field_to_display(process_state, to_display);
   to_display = process_add_field_to_display(process_virt, to_display);
   to_display = process_add_field_to_display(process_res, to_display);
+  to_display = process_add_field_to_display(process_shr, to_display);
   to_display = process_add_field_to_display(process_cpu_pct, to_display);
   to_display = process_add_field_to_display(process_time, to_display);
   to_display = process_add_field_to_display(process_command, to_display);
