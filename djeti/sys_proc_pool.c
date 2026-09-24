@@ -155,6 +155,7 @@ static void read_user(pid_t pid, struct sys_proc *rec) {
   struct stat st;
   if (stat(path, &st) == -1)
     return;
+  rec->uid = (unsigned int)st.st_uid;
   struct passwd *pw = getpwuid(st.st_uid);
   if (pw && pw->pw_name)
     snprintf(rec->user, sizeof(rec->user), "%s", pw->pw_name);
@@ -189,10 +190,12 @@ static void read_command(pid_t pid, struct sys_proc *rec) {
         while (cl > 0 && (cbuf[cl - 1] == '\n' || cbuf[cl - 1] == '\r'))
           cl--;
         snprintf(rec->command, sizeof(rec->command), "%.*s", (int)(sizeof(rec->command) - 1), cbuf);
+        rec->cmd_from_comm = true;
         return;
       }
     }
     rec->command[0] = '\0';
+    rec->cmd_from_comm = false;
     return;
   }
   buf[total] = '\0';
@@ -202,6 +205,7 @@ static void read_command(pid_t pid, struct sys_proc *rec) {
   while (total > 0 && buf[total - 1] == ' ')
     total--;
   snprintf(rec->command, sizeof(rec->command), "%.*s", (int)(sizeof(rec->command) - 1), buf);
+  rec->cmd_from_comm = false;
 }
 
 // ---------------------------------------------------------------------------
