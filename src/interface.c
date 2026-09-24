@@ -41,6 +41,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -610,8 +611,6 @@ static void initialize_colors(const unsigned char plot_color_idx[MAX_LINES_PER_P
   init_pair(yellow_color, COLOR_YELLOW, background_color);
   init_pair(blue_color, COLOR_BLUE, background_color);
   init_pair(magenta_color, COLOR_MAGENTA, background_color);
-  // htop PROCESS_SHADOW: magenta fg on magenta bg renders as a dim gray block.
-  init_pair(shadow_color, COLOR_MAGENTA, COLOR_MAGENTA);
   static const short gpu_plot_pairs[MAX_LINES_PER_PLOT] = {
       gpu_util_plot_color, gpu_mem_plot_color, gpu_plot_color_3, gpu_plot_color_4};
   for (unsigned s = 0; s < MAX_LINES_PER_PLOT; ++s)
@@ -1550,6 +1549,17 @@ static void print_sys_processes_on_screen(struct sys_proc *const *procs, unsigne
   }
   rows -= 1;
 
+  // Current user's name, for the USER column: own processes are default-coloured,
+  // other users' processes are shadowed (htop PROCESS_SHADOW).
+  static char self_user[13] = {0};
+  if (self_user[0] == '\0') {
+    struct passwd *pw = getpwuid(getuid());
+    if (pw && pw->pw_name)
+      snprintf(self_user, sizeof(self_user), "%s", pw->pw_name);
+    else
+      snprintf(self_user, sizeof(self_user), "%d", (int)getuid());
+  }
+
   update_selected_offset_with_window_size(&process->selected_row, &process->offset, rows, count);
   if (process->offset_column + cols >= process_buffer_line_size)
     process->offset_column = process_buffer_line_size - cols - 1;
@@ -1611,8 +1621,26 @@ static void print_sys_processes_on_screen(struct sys_proc *const *procs, unsigne
     snprintf(pid_str, sizeof(pid_str), "%d", (int)sp->pid);
     DRAW_FIELD(process_pid, pid_str, 0);
 
-    short user_pair = (sp->uid == 0) ? magenta_color : 0; // magenta = root
-    DRAW_FIELD(process_user, sp->user, user_pair);
+    // USER colour: magenta = root, dim (lighter) white = another user's
+    // process, default white = your own process.
+    if (process_is_field_displayed(process_user, fields)) {
+      int sx = x - (int)process->offset_column;
+      if (sx >= 0 && sx < (int)cols) {
+        if (sp->uid == 0) {
+          wattr_on(win, COLOR_PAIR(magenta_color), NULL);
+          mvwprintw(win, write_at, sx, "%*s ", (int)sizeof_process_field[process_user], sp->user);
+          wattr_off(win, COLOR_PAIR(magenta_color), NULL);
+        } else if (strcmp(sp->user, self_user) != 0) {
+          // Another user: dim (lighter) white, default colour pair.
+          wattr_on(win, A_DIM, NULL);
+          mvwprintw(win, write_at, sx, "%*s ", (int)sizeof_process_field[process_user], sp->user);
+          wattr_off(win, A_DIM, NULL);
+        } else {
+          mvwprintw(win, write_at, sx, "%*s ", (int)sizeof_process_field[process_user], sp->user);
+        }
+      }
+      x += (int)sizeof_process_field[process_user] + 1;
+    }
 
     snprintf(ppid_str, sizeof(ppid_str), "%d", (int)sp->ppid);
     DRAW_FIELD(process_ppid, ppid_str, 0);

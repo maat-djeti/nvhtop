@@ -55,7 +55,6 @@ enum interface_color {
   green_color,
   red_color,
   blue_color,
-  shadow_color, // htop PROCESS_SHADOW: magenta-on-magenta (dim gray)
   gpu_util_plot_color,
   gpu_mem_plot_color,
   gpu_plot_color_3,
