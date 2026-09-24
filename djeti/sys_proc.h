@@ -65,13 +65,9 @@ struct sys_proc {
   unsigned gpu_id;
   unsigned gpu_rate;
 
-  // CPU% delta state. Deltas are valid only when this slot held the SAME pid
-  // last scan (records are overwritten in walk order, slots are anonymous).
-  nvtop_time prev_time;
-  unsigned long long prev_utime;
-  unsigned long long prev_stime;
-  pid_t prev_pid;
-  bool has_prev;
+  // CPU% delta state now lives in the pool's PID-indexed prev[] baseline
+  // (sys_proc_pool.c), not here: records are anonymous slots and a dead
+  // lower-pid shifts the slot mapping, which zeroed per-slot deltas.
 
   // Producer sets true when it samples this record; consumer sets false when
   // it renders it. Safe under the out-of-phase semaphore ordering (producer

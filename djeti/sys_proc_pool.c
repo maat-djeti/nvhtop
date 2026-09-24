@@ -49,6 +49,18 @@
 
 #define DJETI_PATH_MAX 1024
 
+// Per-PID CPU% baseline. Indexed DIRECTLY by pid (prev[pid]), so a process
+// keeps its utime/stime/time sample across scans no matter which display slot
+// it lands in. This is what fixes the flicker: the old code stored the sample
+// in the slot record, and a dead lower-pid process shifting the slot mapping
+// zeroed the delta for every process above it.
+struct prev_sample {
+  bool has_prev;
+  nvtop_time time;
+  unsigned long long utime;
+  unsigned long long stime;
+};
+
 struct sys_proc_pool {
   // Anonymous record slots, position-indexed 0..record_slots-1. Slot i holds
   // the i-th live process THIS scan (or NULL if not yet allocated). Grow-only.
@@ -59,6 +71,11 @@ struct sys_proc_pool {
   struct sys_proc **sorted;
   size_t sorted_slots;
   size_t sorted_count;
+
+  // PID-indexed CPU% baseline. Allocated once at pid_max+1 entries; entry i is
+  // the previous sample for pid i. Lives for the pool's whole lifetime.
+  struct prev_sample *prev;
+  size_t pid_max;
 
   double total_ram; // bytes
   double ticks;     // _SC_CLK_TCK
@@ -265,6 +282,23 @@ struct sys_proc_pool *sys_proc_pool_new(void) {
   pool->total_ram = (double)sysconf(_SC_PHYS_PAGES) * (double)sysconf(_SC_PAGESIZE);
   pool->ticks = (double)sysconf(_SC_CLK_TCK);
   pool->page_size = sysconf(_SC_PAGESIZE);
+  // pid_max is a live kernel tunable (/proc/sys/kernel/pid_max), read at
+  // runtime. Fall back to a generous default if the file is unreadable.
+  pool->pid_max = 0;
+  {
+    FILE *pf = fopen("/proc/sys/kernel/pid_max", "r");
+    if (pf) {
+      if (fscanf(pf, "%zu", &pool->pid_max) != 1)
+        pool->pid_max = 0;
+      fclose(pf);
+    }
+  }
+  if (pool->pid_max < 1024)
+    pool->pid_max = 1024;
+  // PID-indexed baseline, zeroed so has_prev == false for every pid.
+  pool->prev = calloc(pool->pid_max + 1, sizeof(*pool->prev));
+  if (!pool->prev)
+    abort();
   sem_init(&pool->frame_ready, 0, 0);
   sem_init(&pool->frame_done, 0, 1);
   return pool;
@@ -281,6 +315,7 @@ void sys_proc_pool_free(struct sys_proc_pool *pool) {
     free(pool->records[i]);
   free(pool->records);
   free(pool->sorted);
+  free(pool->prev);
   sem_destroy(&pool->frame_ready);
   sem_destroy(&pool->frame_done);
   free(pool);
@@ -330,14 +365,18 @@ void sys_proc_pool_produce(struct sys_proc_pool *pool, enum process_field sort_k
     read_user(pid, rec);
     read_command(pid, rec);
 
-    // CPU% deltas — valid only if this slot held the SAME pid last scan.
+    // CPU% delta against the PID-indexed baseline. Read the prior sample for
+    // THIS pid (not this slot) before overwriting, compute the delta, then
+    // store the new sample. A pid keeps its baseline across scans regardless
+    // of slot shifts caused by dead lower-pids.
     nvtop_time now;
     nvtop_get_current_time(&now);
-    if (rec->has_prev && rec->prev_pid == pid) {
-      double dt = nvtop_difftime(rec->prev_time, now);
+    struct prev_sample *ps = &pool->prev[pid];
+    if (ps->has_prev) {
+      double dt = nvtop_difftime(ps->time, now);
       if (dt > 0.) {
-        double dutime = (double)(rec->utime - rec->prev_utime) / pool->ticks;
-        double dstime = (double)(rec->stime - rec->prev_stime) / pool->ticks;
+        double dutime = (double)(rec->utime - ps->utime) / pool->ticks;
+        double dstime = (double)(rec->stime - ps->stime) / pool->ticks;
         rec->cpu_user_pct = 100. * dutime / dt;
         rec->cpu_sys_pct = 100. * dstime / dt;
         rec->cpu_pct = rec->cpu_user_pct + rec->cpu_sys_pct;
@@ -347,11 +386,10 @@ void sys_proc_pool_produce(struct sys_proc_pool *pool, enum process_field sort_k
     } else {
       rec->cpu_user_pct = rec->cpu_sys_pct = rec->cpu_pct = 0.;
     }
-    rec->prev_utime = rec->utime;
-    rec->prev_stime = rec->stime;
-    rec->prev_time = now;
-    rec->prev_pid = pid;
-    rec->has_prev = true;
+    ps->utime = rec->utime;
+    ps->stime = rec->stime;
+    ps->time = now;
+    ps->has_prev = true;
     rec->total_time = (double)(rec->utime + rec->stime) / pool->ticks;
     rec->mem_pct = pool->total_ram > 0. ? 100. * (double)rec->rss / pool->total_ram : 0.;
     rec->fresh = true;
