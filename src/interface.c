@@ -680,11 +680,15 @@ void clean_ncurses(struct nvtop_interface *interface) {
 static void *proc_pool_thread(void *arg) {
   struct nvtop_interface *interface = (struct nvtop_interface *)arg;
   while (interface->proc_thread_running) {
+    // Sample /proc/stat once per handoff: the semaphore round-trip IS the
+    // clock, so this runs at exactly the render cadence (update_interval).
+    if (!interface->sys_stats_valid) {
+      unsigned c = sys_stats_read(&interface->sys_stats);
+      (void)c;
+      interface->sys_stats_valid = true;
+    }
     sys_proc_pool_produce(interface->proc_pool, interface->options.sort_processes_by,
                           interface->options.sort_descending_order);
-    // Sleep ~1s, checking for shutdown every 100ms.
-    for (int i = 0; i < 10 && interface->proc_thread_running; ++i)
-      usleep(100000);
   }
   return NULL;
 }
@@ -1738,7 +1742,9 @@ static void draw_sys_processes(struct nvtop_interface *interface) {
                                 interface->options.sort_processes_by,
                                 interface->options.process_fields_displayed);
 
-  // Release the frame back to the producer.
+  // Release the frame back to the producer; the next handoff re-samples
+  // /proc/stat (sys_stats_valid is cleared so the producer reads again).
+  interface->sys_stats_valid = false;
   sys_proc_pool_frame_done(interface->proc_pool);
 }
 
@@ -2111,21 +2117,10 @@ static void draw_sys_stats(struct nvtop_interface *interface) {
   if (win == NULL)
     return;
 
-  // Throttle sys_stats_read to 1Hz. The CPU% deltas are only meaningful
-  // over a ~1s window; sampling every main-loop iteration (milliseconds)
-  // gives noisy, permanently-full bars.
-  static struct sys_stats st;
-  static bool st_valid = false;
-  static nvtop_time st_last_read = {0, 0};
-  nvtop_time now;
-  nvtop_get_current_time(&now);
-  if (!st_valid || nvtop_difftime(st_last_read, now) >= 1.0) {
-    unsigned c = sys_stats_read(&st);
-    (void)c;
-    st_last_read = now;
-    st_valid = true;
-  }
-  unsigned cores = st.core_count;
+  // Sampled by the producer thread once per handoff (proc_pool_thread), so
+  // the delta window equals the render cadence. No timer here.
+  const struct sys_stats *st = &interface->sys_stats;
+  unsigned cores = st->core_count;
   int rows, cols;
   getmaxyx(win, rows, cols);
   werase(win);
@@ -2178,8 +2173,8 @@ static void draw_sys_stats(struct nvtop_interface *interface) {
     int d = (int)global_col > diff ? diff : (int)global_col;
     int xpos = (int)(global_col * (unsigned)colwidth) + d;
 
-    int user_filled = (int)(st.core_user_pct[i] / 100.0 * bar_w);
-    int sys_filled = (int)(st.core_sys_pct[i] / 100.0 * bar_w);
+    int user_filled = (int)(st->core_user_pct[i] / 100.0 * bar_w);
+    int sys_filled = (int)(st->core_sys_pct[i] / 100.0 * bar_w);
     if (user_filled + sys_filled > bar_w)
       sys_filled = bar_w - user_filled;
     if (sys_filled < 0)
@@ -2212,19 +2207,19 @@ static void draw_sys_stats(struct nvtop_interface *interface) {
 
   // Mem line: 3-colour htop-style bar (green=used, magenta=shared, orange=cache).
   if (row < rows) {
-    double mt = st.mem_total / 1048576.0;
-    double mu = st.mem_used / 1048576.0;
+    double mt = st->mem_total / 1048576.0;
+    double mu = st->mem_used / 1048576.0;
     int width = cols - 24;
     if (width < 4)
       width = 4;
     if (width >= (int)sizeof(bar))
       width = (int)sizeof(bar) - 1;
     // Scale each class (KiB) to a column count of the bar width.
-    unsigned long long total_kib = st.mem_total ? st.mem_total : 1;
-    int used_cols = (int)((double)st.mem_used_class * width / total_kib);
-    int shared_cols = (int)((double)st.mem_shared_class * width / total_kib);
-    int buffers_cols = (int)((double)st.mem_buffers_class * width / total_kib);
-    int cache_cols = (int)((double)st.mem_cache_class * width / total_kib);
+    unsigned long long total_kib = st->mem_total ? st->mem_total : 1;
+    int used_cols = (int)((double)st->mem_used_class * width / total_kib);
+    int shared_cols = (int)((double)st->mem_shared_class * width / total_kib);
+    int buffers_cols = (int)((double)st->mem_buffers_class * width / total_kib);
+    int cache_cols = (int)((double)st->mem_cache_class * width / total_kib);
     // "Mem  [" is 6 chars; the bar body runs from col 6 to col 6+width-1, with
     // the closing ']' at col 6+width-1.
     int pre = 6;
@@ -2251,8 +2246,8 @@ static void draw_sys_stats(struct nvtop_interface *interface) {
 
   // Swap line: red bar, same geometry as the Mem line so ']' aligns.
   if (row < rows) {
-    double stt = st.swap_total / 1048576.0;
-    double su = st.swap_used / 1048576.0;
+    double stt = st->swap_total / 1048576.0;
+    double su = st->swap_used / 1048576.0;
     int width = cols - 24;
     if (width < 4)
       width = 4;
@@ -2279,15 +2274,15 @@ static void draw_sys_stats(struct nvtop_interface *interface) {
 
   // Tasks / Load / Uptime line
   if (row < rows) {
-    double up = st.uptime;
+    double up = st->uptime;
     long up_d = (long)(up / 86400);
     long up_h = (long)((up - up_d * 86400) / 3600);
     long up_m = (long)((up - up_d * 86400 - up_h * 3600) / 60);
     mvwprintw(win, row, 0,
               "Tasks: %llu total, %llu running, %llu sleeping, %llu zombie   "
               "Load: %.2f %.2f %.2f   Up: %ldd %02ld:%02ld",
-              st.tasks_total, st.tasks_running, st.tasks_sleeping, st.tasks_zombie,
-              st.load1, st.load5, st.load15, up_d, up_h, up_m);
+              st->tasks_total, st->tasks_running, st->tasks_sleeping, st->tasks_zombie,
+              st->load1, st->load5, st->load15, up_d, up_h, up_m);
     row++;
   }
 

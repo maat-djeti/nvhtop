@@ -26,6 +26,7 @@
 #include "nvtop/interface_options.h"
 #include "nvtop/interface_ring_buffer.h"
 #include "nvtop/time.h"
+#include "nvtop/system_stats.h"
 #include "sys_proc_pool.h"
 
 #include <ncurses.h>
@@ -157,6 +158,8 @@ struct nvtop_interface {
   struct sys_proc_pool *proc_pool;
   pthread_t proc_thread;
   bool proc_thread_running;
+  struct sys_stats sys_stats; // sampled once per update cycle, shared with the producer
+  bool sys_stats_valid;
 };
 
 enum device_field {
