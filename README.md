@@ -15,3 +15,8 @@ original GPU-process view.
 ## Screenshot
 
 ![nvhtop interface](/screenshot/NVHTOP.png)
+
+This code was updated multiple times using Qwen3.8_27B. You really have to 
+keep an eye on how it drifts off task, how it affected by training bias
+with poor code. Next change to this is memory management - I am not looking
+foward to supervising that.
