@@ -372,6 +372,24 @@ void sys_proc_pool_produce(struct sys_proc_pool *pool, enum process_field sort_k
   // frame_done starts at 1).
   sem_wait(&pool->frame_done);
 
+  // GC: walk the previous display frame (sorted[] still holds last scan's
+  // records). For each, check /proc/<pid> against the source of truth. If the
+  // process is gone, free the record and NULL the indexed_collection slot so
+  // a pid reuse starts with a clean baseline. Records pointed to by the
+  // current display frame are retained for the next cycle.
+  for (size_t i = 0; i < pool->sorted_count; ++i) {
+    struct sys_proc *rec = pool->sorted[i];
+    char path[DJETI_PATH_MAX];
+    int w = snprintf(path, sizeof(path), "/proc/%" PRIdMAX, (intmax_t)rec->pid);
+    if (w < 0 || (size_t)w >= sizeof(path))
+      continue;
+    struct stat st;
+    if (stat(path, &st) != 0) {
+      pool->indexed_collection[rec->pid] = NULL;
+      free(rec);
+    }
+  }
+
   // 1. Walk /proc in scan order; slot h is the h-th live process THIS scan.
   size_t h = 0;
   DIR *proc = opendir("/proc");
