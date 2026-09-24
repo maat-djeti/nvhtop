@@ -163,8 +163,8 @@ static void read_user(pid_t pid, struct sys_proc *rec) {
     snprintf(rec->user, sizeof(rec->user), "%u", (unsigned)st.st_uid);
 }
 
-// cmdline: NUL-separated args; join with spaces, snprintf into the fixed
-// command[64] (copy what fits, truncate the rest) (I6).
+// cmdline: NUL-separated args; read directly into rec->command, join with
+// spaces in place (I6).
 static void read_command(pid_t pid, struct sys_proc *rec) {
   char path[DJETI_PATH_MAX];
   int w = snprintf(path, sizeof(path), "/proc/%" PRIdMAX "/cmdline", (intmax_t)pid);
@@ -173,8 +173,7 @@ static void read_command(pid_t pid, struct sys_proc *rec) {
   FILE *f = fopen(path, "r");
   if (!f)
     return;
-  char buf[1024];
-  size_t total = fread(buf, 1, sizeof(buf) - 1, f);
+  size_t total = fread(rec->command, 1, sizeof(rec->command) - 1, f);
   fclose(f);
   if (total == 0) {
     // Kernel threads (and some others) have an empty cmdline; fall back to
@@ -183,13 +182,12 @@ static void read_command(pid_t pid, struct sys_proc *rec) {
     if (w2 >= 0 && (size_t)w2 < sizeof(path)) {
       FILE *cf = fopen(path, "r");
       if (cf) {
-        char cbuf[64];
-        size_t cl = fread(cbuf, 1, sizeof(cbuf) - 1, cf);
+        size_t cl = fread(rec->command, 1, sizeof(rec->command) - 1, cf);
         fclose(cf);
-        cbuf[cl] = '\0';
-        while (cl > 0 && (cbuf[cl - 1] == '\n' || cbuf[cl - 1] == '\r'))
+        rec->command[cl] = '\0';
+        while (cl > 0 && (rec->command[cl - 1] == '\n' || rec->command[cl - 1] == '\r'))
           cl--;
-        snprintf(rec->command, sizeof(rec->command), "%.*s", (int)(sizeof(rec->command) - 1), cbuf);
+        rec->command[cl] = '\0';
         rec->cmd_from_comm = true;
         return;
       }
@@ -198,13 +196,13 @@ static void read_command(pid_t pid, struct sys_proc *rec) {
     rec->cmd_from_comm = false;
     return;
   }
-  buf[total] = '\0';
+  rec->command[total] = '\0';
   for (size_t i = 0; i < total; ++i)
-    if (buf[i] == '\0')
-      buf[i] = ' ';
-  while (total > 0 && buf[total - 1] == ' ')
+    if (rec->command[i] == '\0')
+      rec->command[i] = ' ';
+  while (total > 0 && rec->command[total - 1] == ' ')
     total--;
-  snprintf(rec->command, sizeof(rec->command), "%.*s", (int)(sizeof(rec->command) - 1), buf);
+  rec->command[total] = '\0';
   rec->cmd_from_comm = false;
 }
 

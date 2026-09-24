@@ -79,7 +79,7 @@ struct sys_proc {
   bool fresh;
 
   // Command line, fixed-width, truncated to fit (I6). No arena, no malloc.
-  char command[64];
+  char command[120];
   // True when command was taken from /proc/<pid>/comm (kernel threads, empty
   // cmdline) rather than the real /proc/<pid>/cmdline. Rendered in the default
   // (white) colour; a real cmdline is rendered green.
