@@ -452,8 +452,26 @@ void sys_proc_pool_produce(struct sys_proc_pool *pool, enum process_field sort_k
   }
   closedir(proc);
 
+  // Shrink-to-fit with hysteresis: if the pointer arrays have more than 32
+  // free (unused) slots beyond the live count, realloc them down to h.
+  // Never shrink below h (the current frame needs h slots).
+  if (pool->record_slots - h > 32) {
+    struct sys_proc **nr = realloc(pool->records, h * sizeof(*nr));
+    if (nr) {
+      pool->records = nr;
+      pool->record_slots = h;
+    }
+  }
+
   // 2. Build the sorted frame: copy the live record POINTERS (stable, I9),
   //    appending ONE pointer slot at a time (I10), then qsort.
+  if (pool->sorted_slots - h > 32) {
+    struct sys_proc **ns = realloc(pool->sorted, h * sizeof(*ns));
+    if (ns) {
+      pool->sorted = ns;
+      pool->sorted_slots = h;
+    }
+  }
   while (pool->sorted_slots < h)
     sorted_append_slot(pool);
   for (size_t i = 0; i < h; ++i)
