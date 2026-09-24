@@ -16,7 +16,5 @@ original GPU-process view.
 
 ![nvhtop interface](/screenshot/NVHTOP.png)
 
-This code was updated multiple times using Qwen3.8_27B. You really have to 
-keep an eye on how it drifts off task, how it affected by training bias
-with poor code. Next change to this is memory management - I am not looking
-foward to supervising that.
+(This code was updated multiple times using Qwen3.8_27B in stages so I could code 
+review and fix bugs. AI agents need oversight - this code was performed under supervision with llama-server running in an LXC with the --agent flag on, and a squid proxy to prevent POST and PUT :-) )
